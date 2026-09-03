@@ -1,0 +1,187 @@
+import type { ServiceDefinition, ServiceKey } from '../types/index.js';
+
+// Static seed data — used to populate the DB on first run, and as a fallback
+// if the DB is unreachable. The DB copy is the source of truth once seeded,
+// since the admin can toggle active/inactive and adjust prices over time.
+export const SERVICES: ServiceDefinition[] = [
+  {
+    key: 'logo',
+    emoji: '🎨',
+    name: 'تصميم شعار',
+    minPrice: 200,
+    maxPrice: 600,
+    needsSize: false,
+    active: true,
+  },
+  {
+    key: 'logo_update',
+    emoji: '🎨',
+    name: 'تحديث شعار',
+    minPrice: 125,
+    maxPrice: 400,
+    needsSize: false,
+    active: true,
+  },
+  {
+    key: 'brand_identity',
+    emoji: '💼',
+    name: 'تصميم هوية بصرية',
+    minPrice: 500,
+    maxPrice: 1400,
+    needsSize: false,
+    active: true,
+  },
+  {
+    key: 'brand_identity_update',
+    emoji: '💼',
+    name: 'تحديث هوية بصرية',
+    minPrice: 400,
+    maxPrice: 1000,
+    needsSize: false,
+    active: true,
+  },
+  {
+    key: 'pattern',
+    emoji: '🔷',
+    name: 'تصميم نمط Pattern',
+    minPrice: 40,
+    maxPrice: 60,
+    needsSize: false,
+    active: true,
+  },
+  {
+    key: 'business_card',
+    emoji: '💳',
+    name: 'تصميم كرت شخصي',
+    minPrice: 25,
+    maxPrice: 50,
+    needsSize: false,
+    active: true,
+  },
+  {
+    key: 'packaging',
+    emoji: '📦',
+    name: 'تصميم علب وتغليف',
+    minPrice: 225,
+    maxPrice: 550,
+    needsSize: false,
+    active: true,
+  },
+  {
+    key: 'stamp',
+    emoji: '🔖',
+    name: 'تصميم ختم',
+    minPrice: 40,
+    maxPrice: 60,
+    needsSize: false,
+    active: true,
+  },
+  {
+    key: 'brochure',
+    emoji: '📄',
+    name: 'تصميم بروشور',
+    minPrice: 75,
+    maxPrice: 125,
+    needsSize: true,
+    sizeOptions: ['A4', 'A5', 'مقاس خاص'],
+    active: true,
+  },
+  {
+    key: 'certificate',
+    emoji: '📜',
+    name: 'تصميم شهادات',
+    minPrice: 40,
+    maxPrice: 60,
+    needsSize: true,
+    sizeOptions: ['A4', 'مقاس خاص'],
+    active: true,
+  },
+  {
+    key: 'billboard',
+    emoji: '🖼️',
+    name: 'تصميم لوحة إعلانية',
+    minPrice: 70,
+    maxPrice: 150,
+    needsSize: true,
+    sizeOptions: ['1080×1080', '1080×1920', 'مقاس خاص'],
+    active: true,
+  },
+  {
+    key: 'letterhead',
+    emoji: '📝',
+    name: 'تصميم ورق مراسلات',
+    minPrice: 40,
+    maxPrice: 60,
+    needsSize: true,
+    sizeOptions: ['A4', 'مقاس خاص'],
+    active: true,
+  },
+  {
+    key: 'bag',
+    emoji: '🛍️',
+    name: 'تصميم أكياس',
+    minPrice: 40,
+    maxPrice: 70,
+    needsSize: false,
+    active: true,
+  },
+  {
+    key: 'notebook',
+    emoji: '📓',
+    name: 'تصميم دفتر ملاحظات',
+    minPrice: 40,
+    maxPrice: 65,
+    needsSize: false,
+    active: true,
+  },
+  {
+    key: 'stickers',
+    emoji: '🏷️',
+    name: 'تصميم استكرات',
+    minPrice: 40,
+    maxPrice: 60,
+    needsSize: false,
+    active: true,
+  },
+  {
+    key: 'book_cover',
+    emoji: '📖',
+    name: 'تصميم غلاف كتاب',
+    minPrice: 75,
+    maxPrice: 175,
+    needsSize: false,
+    active: true,
+  },
+  {
+    key: 'flyer',
+    emoji: '📃',
+    name: 'تصميم فلاير',
+    minPrice: 60,
+    maxPrice: 85,
+    needsSize: true,
+    sizeOptions: ['A4', 'A5', '1080×1080', '1080×1920', 'مقاس خاص'],
+    active: true,
+  },
+  {
+    key: 'magazine',
+    emoji: '📰',
+    name: 'تصميم مجلة',
+    minPrice: 40,
+    maxPrice: 60,
+    perPage: true,
+    needsSize: false,
+    active: true,
+  },
+];
+
+export function getServiceByKey(key: string): ServiceDefinition | undefined {
+  return SERVICES.find((s) => s.key === key);
+}
+
+export function formatServicePrice(service: ServiceDefinition): string {
+  const perPageSuffix = service.perPage ? ' لكل صفحة' : '';
+  return `من ${service.minPrice} إلى ${service.maxPrice} د.ل${perPageSuffix}`;
+}
+
+export const isValidServiceKey = (key: string): key is ServiceKey =>
+  SERVICES.some((s) => s.key === key);
