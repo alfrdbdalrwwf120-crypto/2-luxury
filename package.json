@@ -1,0 +1,13 @@
+{
+  "name": "elmohtaref-bot",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "scripts": {
+    "start": "npx ts-node index.ts"
+  },
+  "dependencies": {
+    "grammy": "^1.35.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}
