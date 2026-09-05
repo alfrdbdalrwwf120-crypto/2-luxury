@@ -1,0 +1,520 @@
+import { Bot, InlineKeyboard } from "grammy";
+import { createServer } from "node:http";
+
+const token = process.env.BOT_TOKEN || "ضع_التوكن_هنا";
+const bot = new Bot(token);
+
+const ADMIN_CHAT_ID = 7812617493;
+
+interface Order {
+  id: number;
+  userId: number;
+  userName: string;
+  serviceName: string;
+  details: {
+    projectName?: string;
+    projectField?: string;
+    idea?: string;
+    colors?: string;
+    files?: string;
+  };
+  priceRange: string;
+  status: string;
+  date: string;
+}
+
+interface Review {
+  userName: string;
+  rating: string;
+  text: string;
+}
+
+const orders: Order[] = [];
+const reviews: Review[] = [
+  { userName: "محمد أ.", rating: "⭐⭐⭐⭐⭐", text: "تصميم شعار احترافي جداً وتعامل راقي." },
+  { userName: "سارة م.", rating: "⭐⭐⭐⭐⭐", text: "هوية بصرية متكاملة وفاخرة، شكراً لمتجر الفخامة Luxury." }
+];
+
+const userSessions: Record<number, { service?: string; step?: number; reviewRating?: string; data: any }> = {};
+
+const servicesList = [
+  { name: "🎨 تصميم شعار", price: "من 200 إلى 600 د.ل" },
+  { name: "🎨 تحديث شعار", price: "من 125 إلى 400 د.ل" },
+  { name: "🎨 تصميم هوية بصرية", price: "من 500 إلى 1400 د.ل" },
+  { name: "🎨 تحديث هوية بصرية", price: "من 400 إلى 1000 د.ل" },
+  { name: "🎨 تصميم نمط Pattern", price: "من 40 إلى 60 د.ل" },
+  { name: "🎨 تصميم كرت شخصي", price: "من 25 إلى 50 د.ل" },
+  { name: "🎨 تصميم علب وتغليف", price: "من 225 إلى 550 د.ل" },
+  { name: "🎨 تصميم ختم", price: "من 40 إلى 60 د.ل" },
+  { name: "🎨 تصميم بروشور", price: "من 75 إلى 125 د.ل" },
+  { name: "🎨 تصميم شهادات", price: "من 40 إلى 60 د.ل" },
+  { name: "🎨 تصميم لوحة إعلانية", price: "من 70 إلى 150 د.ل" },
+  { name: "🎨 تصميم ورق مراسلات", price: "من 40 إلى 60 د.ل" },
+  { name: "🎨 تصميم أكياس", price: "من 40 إلى 70 د.ل" },
+  { name: "🎨 تصميم دفتر ملاحظات", price: "من 40 إلى 65 د.ل" },
+  { name: "🎨 تصميم استكرات", price: "من 40 إلى 60 د.ل" },
+  { name: "🎨 تصميم غلاف كتاب", price: "من 75 إلى 175 د.ل" },
+  { name: "🎨 تصميم فلاير", price: "من 60 إلى 85 د.ل" },
+  { name: "🎨 تصميم مجلة", price: "من 40 إلى 60 د.ل لكل صفحة" },
+];
+
+const packagesList = [
+  { name: "🌟 باقة انطلاقة المشروع", details: "شعار + كرت شخصي + ورق مراسلات", price: "350 د.ل" },
+  { name: "🚀 باقة الهوية الكاملة", details: "شعار + هوية بصرية متكاملة + علب وتغليف", price: "1100 د.ل" },
+  { name: "⚡ باقة VIP المستعجلة", details: "تسليم أي تصميم خلال 24 ساعة فقط", price: "حسب نوع الخدمة + 30%" },
+];
+
+// القائمة الرئيسية
+const getMainKeyboard = (userId: number) => {
+  const keyboard = new InlineKeyboard()
+    .text("🎨 طلب تصميم جديد", "cmd_request_design").row()
+    .text("📂 استلام ملفات المشروع (PDF / ZIP)", "cmd_get_files").row()
+    .text("💎 استشارة بصرية سريعة (VIP)", "cmd_vip_consult").row()
+    .text("📦 الباقات والعروض التوفيرية", "cmd_packages").row()
+    .text("🖼️ معرض الأعمال (صور النماذج)", "cmd_portfolio").row()
+    .text("💰 الخدمات والأسعار", "cmd_services").row()
+    .text("⭐ آراء وتقييمات العملاء", "cmd_reviews").row()
+    .text("✍️ أضف تقييمك الآن", "cmd_add_review").row()
+    .text("📁 طلباتي الحالية", "cmd_my_orders").row()
+    .text("📞 التواصل المباشر مع المصمم", "cmd_contact").row()
+    .text("ℹ️ حول متجر الفخامة Luxury", "cmd_help");
+
+  if (userId === ADMIN_CHAT_ID) {
+    keyboard.row().text("👑 لوحة تحكم الإدارة", "admin_panel_home");
+  }
+
+  return keyboard;
+};
+
+const adminPanelKeyboard = new InlineKeyboard()
+  .text("📋 عرض كل الطلبات", "admin_list_orders").row()
+  .text("📊 إحصائيات وتقارير البوت", "admin_stats").row()
+  .text("🔙 العودة للقائمة الرئيسية", "back_to_main");
+
+bot.command("start", async (ctx) => {
+  const userId = ctx.from?.id || 0;
+  const welcomeText = 
+    `✨ **أهلاً بك في متجر الفخامة Luxury** ✨\n\n` +
+    `نقدم لك أفخم الحلول البصرية والهويات التجارية المتكاملة بأعلى معايير الجودة والاحترافية.\n\n` +
+    `اختر ما يناسبك من القائمة الرئيسية أدناه:`;
+  
+  await ctx.reply(welcomeText, { reply_markup: getMainKeyboard(userId), parse_mode: "Markdown" });
+});
+
+bot.command("admin", async (ctx) => {
+  if (ctx.from?.id !== ADMIN_CHAT_ID) return;
+  await ctx.reply("👑 **لوحة تحكم إدارة متجر الفخامة Luxury:**", { reply_markup: adminPanelKeyboard, parse_mode: "Markdown" });
+});
+
+bot.callbackQuery("admin_panel_home", async (ctx) => {
+  if (ctx.from?.id !== ADMIN_CHAT_ID) return;
+  await ctx.answerCallbackQuery();
+  await ctx.editMessageText("👑 **لوحة تحكم إدارة متجر الفخامة Luxury:**", { reply_markup: adminPanelKeyboard, parse_mode: "Markdown" });
+});
+
+bot.callbackQuery("back_to_main", async (ctx) => {
+  const userId = ctx.from?.id || 0;
+  await ctx.answerCallbackQuery();
+  await ctx.editMessageText("✨ **القائمة الرئيسية - متجر الفخامة Luxury:**", { reply_markup: getMainKeyboard(userId), parse_mode: "Markdown" });
+});
+
+bot.callbackQuery("cmd_services", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  let msg = "💰 **قائمة خدمات وأسعار متجر الفخامة Luxury:**\n\n";
+  servicesList.forEach(s => {
+    msg += `${s.name} : ${s.price}\n`;
+  });
+  await ctx.reply(msg, { parse_mode: "Markdown" });
+});
+
+bot.callbackQuery("cmd_packages", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  let msg = "📦 **الباقات والحلول المتكاملة:**\n\n";
+  packagesList.forEach(p => {
+    msg += `🔹 **${p.name}**\n📝 المكونات: ${p.details}\n💵 السعر: ${p.price}\n------------------\n`;
+  });
+  await ctx.reply(msg, { parse_mode: "Markdown" });
+});
+
+// 📂 طلب استلام ملفات المشروع برقم الطلب
+bot.callbackQuery("cmd_get_files", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const userId = ctx.from?.id || 0;
+  userSessions[userId] = { step: 70, data: {} };
+
+  await ctx.reply(
+    "📂 **طلب استلام ملفات المشروع:**\n\n" +
+    "أرسل **رقم الطلب** الخاص بك في رسالة (مثال: `1234` أو `#1234`) وسنقوم بتجهيز الملفات وإرسالها لك فوراً!",
+    { parse_mode: "Markdown" }
+  );
+});
+
+// 💎 استشارة VIP
+bot.callbackQuery("cmd_vip_consult", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const userId = ctx.from?.id || 0;
+  userSessions[userId] = { step: 50, data: {} };
+  
+  await ctx.reply(
+    "💎 **خدمة الاستشارة البصرية (VIP):**\n\n" +
+    "أرسل لنا تصميمك الحالي أو الفكرة التي تفكر بها، وسيتم تقييمها وإعطاؤك توجيهاً فنياً مخصصاً لتطوير علاماتك التجارية!",
+    { parse_mode: "Markdown" }
+  );
+});
+
+// 🖼️ معرض الأعمال
+bot.callbackQuery("cmd_portfolio", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  try {
+    await ctx.replyWithPhoto("https://images.unsplash.com/photo-1626785774573-4b799315345d?w=800", {
+      caption: "🎨 **نموذج تصميم شعار وهويّة بصرية**\nتم تنفيذها باحترافية لتناسب تطلعات العميل.",
+      parse_mode: "Markdown"
+    });
+
+    await ctx.replyWithPhoto("https://images.unsplash.com/photo-1542744094-3a31246264d0?w=800", {
+      caption: "📦 **تصميم علب وتغليف منتجات**\nجودة عالية ومظهر راقي يجذب العملاء.",
+      parse_mode: "Markdown"
+    });
+  } catch (e) {
+    await ctx.reply("🖼️ **معرض أعمال متجر الفخامة Luxury**\n\n- تصميم الشعارات والهويات التجارية.\n- تصميم المطبوعات والتغليف.\n- أنماط الـ Pattern المبتكرة.");
+  }
+});
+
+bot.callbackQuery("cmd_reviews", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  let msg = "⭐ **آراء وتقييمات عملاء الفخامة Luxury:**\n\n";
+  reviews.forEach(r => {
+    msg += `👤 **${r.userName}** - ${r.rating}\n💬 "${r.text}"\n------------------\n`;
+  });
+  await ctx.reply(msg, { parse_mode: "Markdown" });
+});
+
+bot.callbackQuery("cmd_add_review", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const kb = new InlineKeyboard()
+    .text("⭐⭐⭐⭐⭐ (ممتاز جداً)", "rate_5").row()
+    .text("⭐⭐⭐⭐ (جيد جداً)", "rate_4").row()
+    .text("⭐⭐⭐ (جيد)", "rate_3");
+
+  await ctx.reply("⭐ اختر تقييمك لخدمات متجر الفخامة Luxury:", { reply_markup: kb });
+});
+
+bot.callbackQuery("cmd_request_design", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const keyboard = new InlineKeyboard();
+  servicesList.forEach((s, index) => {
+    keyboard.text(s.name, `srv_${index}`).row();
+  });
+  packagesList.forEach((p, index) => {
+    keyboard.text(`📦 ${p.name}`, `pkg_${index}`).row();
+  });
+  await ctx.reply("اختر الخدمة أو الباقة المطلوبة لبدء الطلب:", { reply_markup: keyboard });
+});
+
+bot.callbackQuery("cmd_contact", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await ctx.reply("📞 أهلاً بك! اكتب استفسارك أو التفاصيل هنا مباشرة، وسيتم تحويلها فوراً للمصمم للرد عليك.");
+});
+
+bot.callbackQuery("cmd_help", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await ctx.reply("ℹ️ **عن متجر الفخامة Luxury:**\nمتخصصون في صناعة الهويات البصرية والشعارات والتصاميم المبتكرة بأعلى معايير الفخامة والاحترافية.");
+});
+
+bot.callbackQuery("admin_list_orders", async (ctx) => {
+  if (ctx.from?.id !== ADMIN_CHAT_ID) return;
+  await ctx.answerCallbackQuery();
+  
+  if (orders.length === 0) {
+    await ctx.reply("📭 لا توجد أي طلبات مسجلة حالياً.");
+  } else {
+    let msg = `📋 **قائمة الطلبات المسجلة (${orders.length}):**\n\n`;
+    orders.forEach(o => {
+      msg += `🔹 طلب #${o.id}\n👤 العميل: ${o.userName}\n🎨 الخدمة: ${o.serviceName}\n📌 المشروع: ${o.details.projectName}\nالحالة: ${o.status}\n------------------\n`;
+    });
+    await ctx.reply(msg, { parse_mode: "Markdown" });
+  }
+});
+
+bot.callbackQuery("admin_stats", async (ctx) => {
+  if (ctx.from?.id !== ADMIN_CHAT_ID) return;
+  await ctx.answerCallbackQuery();
+  await ctx.reply(`📊 **إحصائيات بوت متجر الفخامة Luxury:**\n\n- الخدمات المتاحة: ${servicesList.length}\n- إجمالي الطلبات: ${orders.length}\n- التقييمات المسجلة: ${reviews.length}\n- الحالة: متصل 24/7 🟢`);
+});
+
+bot.on("callback_query:data", async (ctx) => {
+  const data = ctx.callbackQuery.data;
+  const userId = ctx.from?.id || 0;
+
+  if (data.startsWith("rate_")) {
+    const starsCount = data.replace("rate_", "");
+    let ratingStr = "⭐⭐⭐⭐⭐";
+    if (starsCount === "4") ratingStr = "⭐⭐⭐⭐";
+    if (starsCount === "3") ratingStr = "⭐⭐⭐";
+
+    userSessions[userId] = { step: 99, reviewRating: ratingStr, data: {} };
+    await ctx.answerCallbackQuery();
+    await ctx.reply("✍️ شكراً لك! الآن أرسل في رسالة نصية رأيك أو تعليقك على الخدمة لنشره في قسم التقييمات:");
+    return;
+  }
+
+  if (data.startsWith("st_") && userId === ADMIN_CHAT_ID) {
+    const parts = data.split("_");
+    const newStatus = parts[1];
+    const orderId = parseInt(parts[2]);
+
+    const order = orders.find(o => o.id === orderId);
+    if (order) {
+      let statusText = "قيد التجهيز ⏳";
+      if (newStatus === "done") statusText = "مكتمل وجاهز ✅";
+      if (newStatus === "cancel") statusText = "ملغي ❌";
+
+      order.status = statusText;
+      await ctx.answerCallbackQuery({ text: `تم التحديث إلى: ${statusText}` });
+
+      try {
+        await bot.api.sendMessage(order.userId, `🔔 **تحديث بشأن طلبك (#${orderId}):**\n\nأصبحت حالة طلبك الآن: **${statusText}**`);
+      } catch (e) {}
+    }
+    return;
+  }
+
+  if (data.startsWith("srv_") || data.startsWith("pkg_")) {
+    let selectedName = "";
+    let selectedPrice = "";
+
+    if (data.startsWith("srv_")) {
+      const srvIndex = parseInt(data.replace("srv_", ""));
+      selectedName = servicesList[srvIndex].name;
+      selectedPrice = servicesList[srvIndex].price;
+    } else {
+      const pkgIndex = parseInt(data.replace("pkg_", ""));
+      selectedName = packagesList[pkgIndex].name;
+      selectedPrice = packagesList[pkgIndex].price;
+    }
+
+    userSessions[userId] = { service: selectedName, step: 1, data: { priceRange: selectedPrice } };
+    await ctx.answerCallbackQuery();
+    await ctx.reply(`لقد اخترت: **${selectedName}**\n\nالخطوة 1: ما هو اسم المشروع أو العلامة التجارية؟`, { parse_mode: "Markdown" });
+  } 
+  else if (data === "cmd_my_orders") {
+    await ctx.answerCallbackQuery();
+    const userOrders = orders.filter(o => o.userId === userId);
+    if (userOrders.length === 0) {
+      await ctx.reply("📦 ليس لديك أي طلبات مسجلة حتى الآن.");
+    } else {
+      let msg = "📦 **سجل طلباتك لدى متجر الفخامة Luxury:**\n\n";
+      userOrders.forEach(o => {
+        msg += `رقم الطلب: #${o.id}\nالخدمة: ${o.serviceName}\nالحالة: ${o.status}\nالتاريخ: ${o.date}\n------------------\n`;
+      });
+      await ctx.reply(msg, { parse_mode: "Markdown" });
+    }
+  } 
+  else if (data === "color_yes" || data === "color_no") {
+    const session = userSessions[userId];
+    if (!session) return;
+
+    session.data.colors = data === "color_yes" ? "نعم، سيتم تحديدها" : "لا، اتركها للتذوق الفني للمصمم";
+    session.step = 5;
+
+    await ctx.answerCallbackQuery();
+    const kb = new InlineKeyboard().text("📎 نعم، سأرسل ملفات", "file_yes").text("➡️ لا يوجد", "file_no");
+    await ctx.reply("الخطوة 5: هل لديك شعار قديم أو صور ومراجع تحب إرفاقها؟", { reply_markup: kb });
+  }
+  else if (data === "file_yes" || data === "file_no") {
+    const session = userSessions[userId];
+    if (!session) return;
+
+    session.data.files = data === "file_yes" ? "سيتم إرسال الملفات" : "لا توجد ملفات";
+
+    const newOrderId = Math.floor(1000 + Math.random() * 9000);
+    const clientName = ctx.from?.first_name || "عميل";
+    const clientUsername = ctx.from?.username ? `@${ctx.from.username}` : "لا يوجد معرف";
+
+    const newOrder: Order = {
+      id: newOrderId,
+      userId: userId,
+      userName: clientName,
+      serviceName: session.service || "تصميم",
+      details: session.data,
+      priceRange: session.data.priceRange || "يحدد بعد المراجعة",
+      status: "قيد المراجعة ⏳",
+      date: new Date().toLocaleDateString()
+    };
+
+    orders.push(newOrder);
+    delete userSessions[userId];
+
+    await ctx.answerCallbackQuery();
+
+    try {
+      const adminMsg = 
+        `🚨 **طلب تصميم جديد! (#${newOrderId})**\n\n` +
+        `👤 العميل: ${clientName} (${clientUsername})\n` +
+        `🆔 معرف المستخدم: \`${userId}\`\n` +
+        `🎨 الخدمة/الباقة: ${newOrder.serviceName}\n` +
+        `📌 اسم المشروع: ${newOrder.details.projectName}\n` +
+        `🏷️ المجال: ${newOrder.details.projectField}\n` +
+        `💡 الفكرة: ${newOrder.details.idea}\n` +
+        `🎨 الألوان: ${newOrder.details.colors}\n` +
+        `📎 المرفقات: ${newOrder.details.files}\n` +
+        `💰 السعر المتوقع: ${newOrder.priceRange}`;
+
+      const adminOrderKb = new InlineKeyboard()
+        .text("⏳ قيد التجهيز", `st_process_${newOrderId}`)
+        .text("✅ إنجاز", `st_done_${newOrderId}`)
+        .text("❌ إلغاء", `st_cancel_${newOrderId}`);
+
+      await bot.api.sendMessage(ADMIN_CHAT_ID, adminMsg, { reply_markup: adminOrderKb, parse_mode: "Markdown" });
+    } catch (err) {}
+
+    await ctx.reply(`✅ **تم تسجيل طلبك بنجاح في متجر الفخامة Luxury (#${newOrderId})**\n\nسيتم مراجعة الطلب والتواصل معك قريباً جداً!`, { parse_mode: "Markdown" });
+  }
+});
+
+// 📁 معالجة إرسال الملفات والـ PDF من المدير إلى العميل عن طريق الرد (Reply)
+bot.on("message:document", async (ctx) => {
+  const userId = ctx.from?.id || 0;
+
+  if (userId === ADMIN_CHAT_ID && ctx.message.reply_to_message) {
+    const repliedText = ctx.message.reply_to_message.text || ctx.message.reply_to_message.caption || "";
+    
+    // استخراج معرف العميل بالنمط الشامل وبشكل موثوق
+    const extractedId = repliedText.match(/معرف المستخدم:? `?(\d+)`?/)?.[1] || 
+                        repliedText.match(/ID:? (\d+)/)?.[1];
+
+    if (extractedId) {
+      const targetUserId = parseInt(extractedId);
+      const fileId = ctx.message.document.file_id;
+      const caption = ctx.message.caption || "🎁 **تفضل، هذه هي ملفات عملك النهائية جاهزة للتحميل (PDF)!**\n\nنشكر اختيارك لمتجر الفخامة Luxury ✨";
+
+      try {
+        await bot.api.sendDocument(targetUserId, fileId, { caption: caption, parse_mode: "Markdown" });
+        await ctx.reply("✅ تم إرسال الملف إلى العميل بنجاح!");
+      } catch (e) {
+        await ctx.reply("❌ فشل إرسال الملف، قد يكون الزبون حظر البوت.");
+      }
+    } else {
+      await ctx.reply("⚠️ لم أتمكن من العثور على ID العميل في الرسالة التي قمت بالرد عليها.");
+    }
+  }
+});
+
+bot.on("message", async (ctx) => {
+  const userId = ctx.from?.id || 0;
+  const session = userSessions[userId];
+
+  // 1. معالجة إدخال رقم الطلب لاستلام الملفات
+  if (session && session.step === 70) {
+    const orderNum = ctx.message.text || "";
+    const clientName = ctx.from?.first_name || "عميل";
+    const clientUsername = ctx.from?.username ? `@${ctx.from.username}` : "لا يوجد معرف";
+
+    delete userSessions[userId];
+
+    try {
+      const adminNotice = 
+        `📦 **طلب استلام ملفات مشروع!**\n\n` +
+        `👤 العميل: ${clientName} (${clientUsername})\n` +
+        `🆔 معرف المستخدم: \`${userId}\`\n` +
+        `🔢 رقم الطلب المدخل: **${orderNum}**\n\n` +
+        `_💡 قم بعمل Reply على هذه الرسالة وأرفق ملف الـ PDF/ZIP لتسليمه للعميل فوراً._`;
+
+      await bot.api.sendMessage(ADMIN_CHAT_ID, adminNotice, { parse_mode: "Markdown" });
+      await ctx.reply("⌛ **جاري مراجعة طلبك...** تم إشعار المصمم برقم طلبك وسيصلك ملف العمل هنا مباشرة خلال لحظات!");
+    } catch (e) {
+      await ctx.reply("✅ تم إرسال طلبك للادارة.");
+    }
+    return;
+  }
+
+  // 2. معالجة طلب استشارة VIP
+  if (session && session.step === 50) {
+    const clientName = ctx.from?.first_name || "عميل";
+    const clientUsername = ctx.from?.username ? `@${ctx.from.username}` : "لا يوجد معرف";
+
+    try {
+      const headerMsg = 
+        `💎 **طلب استشارة بصرية جديدة (VIP)**\n\n` +
+        `👤 العميل: ${clientName} (${clientUsername})\n` +
+        `🆔 معرف المستخدم: \`${userId}\`\n` +
+        `👇 المرفق/الرسالة أدناه:`;
+
+      await bot.api.sendMessage(ADMIN_CHAT_ID, headerMsg, { parse_mode: "Markdown" });
+      await ctx.forwardMessage(ADMIN_CHAT_ID);
+      
+      delete userSessions[userId];
+      await ctx.reply("✨ **تم استلام طلب الاستشارة بنجاح!** سيقوم المصمم بدراسة التفاصيل والرد عليك بتقييم فني شامِل.");
+    } catch (e) {
+      await ctx.reply("✅ تم تحويل استشارتك للمصمم بنجاح.");
+    }
+    return;
+  }
+
+  const text = ctx.message.text;
+  if (!text || text.startsWith("/")) return;
+
+  // 3. كتابة تقييم
+  if (session && session.step === 99) {
+    const clientName = ctx.from?.first_name || "عميل";
+    reviews.push({
+      userName: clientName,
+      rating: session.reviewRating || "⭐⭐⭐⭐⭐",
+      text: text
+    });
+    delete userSessions[userId];
+    await ctx.reply("⭐ **شكراً لك!** تم حفظ ونشر تقييمك بنجاح في قسم آراء العملاء.");
+    return;
+  }
+
+  // 4. ردود المدير النصية
+  if (userId === ADMIN_CHAT_ID && ctx.message.reply_to_message) {
+    const repliedText = ctx.message.reply_to_message.text || ctx.message.reply_to_message.caption || "";
+    const extractedId = repliedText.match(/معرف المستخدم:? `?(\d+)`?/)?.[1] || 
+                        repliedText.match(/ID:? (\d+)/)?.[1];
+    
+    if (extractedId) {
+      const targetUserId = parseInt(extractedId);
+      try {
+        await bot.api.sendMessage(targetUserId, `💬 **رد من إدارة متجر الفخامة Luxury:**\n\n${text}`);
+        await ctx.reply("✅ تم إرسال الرد إلى الزبون بنجاح!");
+      } catch (e) {
+        await ctx.reply("❌ فشل الإرسال.");
+      }
+      return;
+    }
+  }
+
+  // 5. خطوات الطلب
+  if (session && session.step) {
+    if (session.step === 1) {
+      session.data.projectName = text;
+      session.step = 2;
+      await ctx.reply("الخطوة 2: ما هو مجال المشروع؟ (مثل: مطعم، شركة مقاولات، متجر أزياء)");
+    } else if (session.step === 2) {
+      session.data.projectField = text;
+      session.step = 3;
+      await ctx.reply("الخطوة 3: اشرح فكرتك والتصور المطلوب للتصميم بشكل مختصر.");
+    } else if (session.step === 3) {
+      session.data.idea = text;
+      session.step = 4;
+      const kb = new InlineKeyboard().text("🎨 نعم", "color_yes").text("⚪ اتركها للمصمم", "color_no");
+      await ctx.reply("الخطوة 4: هل لديك ألوان مفضلة تريد اعتمادها؟", { reply_markup: kb });
+    }
+    return;
+  }
+
+  // 6. تحويل استفسارات الزبائن العامة للمدير
+  if (userId !== ADMIN_CHAT_ID) {
+    const clientName = ctx.from?.first_name || "عميل";
+    const clientUsername = ctx.from?.username ? `@${ctx.from.username}` : "بدون معرف";
+    
+    try {
+      const forwardMsg = 
+        `📩 **استفسار جديد من عميل!**\n` +
+        `👤 الاسم: ${clientName} (${clientUsername})\n` +
+        `🆔 معرف المستخدم: \`${userId}\`\n\n` +
+        `💬 الرسالة:\n${text}\n\n` +
+        `_💡 للرد على هذا العميل، قم بعمل Reply (رد) على هذه الرسالة واكتب ردك._`;
+
+      await bot.api.sendMessage(ADMIN_CHAT_
